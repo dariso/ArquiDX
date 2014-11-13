@@ -11,7 +11,8 @@ using namespace std;
 #define NUM_THREADS 5
 const int tamanoMemoria = 1600;
 const int tamanoInstrucciones = 768;
-const int numRegistros = 32;
+//registro 32 == RL
+const int numRegistros = 33;
 
 struct IfId{
 	int npc;
@@ -46,7 +47,8 @@ struct Cache{
 };
 
 
-bool ingresarInstrucciones = true;
+bool ingresarInstruccionesIF = true;
+bool ingresarInstruccionesID = true;
 int ciclo = 1;
 int quantum = 0;
 int pc = 0;
@@ -136,26 +138,24 @@ void iniciarCicloReloj(){
 int loadCache(int numBloque){
     int indice = numBloque % 8;
     int indiceMemoria = numBloque * 4;
-    bool salir = false;
-    while(!salir){
-        if(cacheDatos.etiqueta[indice] == numBloque){
-            salir = true;
-        }else{
-        	///remplazo bloque, escribir en memoria
-            int dirMemoriaViejo = cacheDatos.etiqueta[indice]*4;
-            for(int i = 0;i<4;i++){
-            	memoria[dirMemoriaViejo+i] = cacheDatos.bloques[indice][i];
-            }
-
-
-            cacheDatos.etiqueta[indice] = numBloque;
-            for(int i=0; i<4; i++){
-                cacheDatos.bloques[indice][i] = memoria[indiceMemoria + i];
-            }
+    if(cacheDatos.etiqueta[indice] != numBloque){
+    	if(cacheDatos.estado[indice] == 'm'){
+				///remplazo bloque modificado, escribir en memoria
+				int dirMemoriaViejo = cacheDatos.etiqueta[indice]*4;
+				for(int i = 0;i<4;i++){
+					memoria[dirMemoriaViejo+i] = cacheDatos.bloques[indice][i];
+				}
+				cout<<"Holis"<<endl;
         }
+        cacheDatos.etiqueta[indice] = numBloque;
+        for(int i=0; i<4; i++){
+        	cacheDatos.bloques[indice][i] = memoria[indiceMemoria + i];
+        }
+            cacheDatos.estado[indice] = 'c';
     }
     return indice;
 }
+
 
 void *rutinaIF(void *args){
    bool suicidio = false;
@@ -163,7 +163,20 @@ void *rutinaIF(void *args){
        sem_wait(&semIf);
        sem_wait(&semEspereId);
 
-       if(ingresarInstrucciones){
+       if(ingresarInstruccionesIF){
+
+    	   if((registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5)
+    			   && (registroExMem.cond == 1)){
+
+    		   pc = pc + registroExMem.aluOutput;
+    		   ingresarInstruccionesID = true;
+
+    	   }
+    	   else{
+    		   pc += 4;
+    	   }
+
+
     	   //cargar instruccion en IF/ID
     	   for(int i = 0; i < 4; i++){
     		   registroIfId.ir[i] = memoria[pc+i];
@@ -173,7 +186,7 @@ void *rutinaIF(void *args){
     		   suicidio = true;
     	   }
 
-    	   pc += 4;
+
     	   registroIfId.npc = pc;
 
     	   pthread_mutex_lock( &mutex1 );
@@ -195,7 +208,7 @@ void *rutinaIF(void *args){
        if(suicidio){
           pthread_exit(NULL);
        }
-    }
+   }
    return 0;
 }
 
@@ -203,96 +216,97 @@ void *rutinaID(void *args){
     int aTemp = -1;
     int bTemp = -1;
     int immTemp = -1;
+    	while(true){
+    		if(ingresarInstruccionesID){
+				switch(registroIfId.ir[0]){
+					case 63:
+						sem_post(&semEspereId);
+						pthread_mutex_lock( &mutex1 );
+						hilosFinalizados++;
+						if(etapasFinalizadas < barrera){
+							etapasFinalizadas++;
+						}else{
+							sem_post(&semMain);
+						}
+						pthread_mutex_unlock( &mutex1 );
+						pthread_exit(NULL); //Muerase
+						break;
 
+					//BEQZ
+					case 4:
+						//detener ingreso de instrucciones, no hay prediccion
+						ingresarInstruccionesIF = false;
+						ingresarInstruccionesID = false;
+						aTemp = registros[registroIfId.ir[1]];
+						bTemp = registros[registroIfId.ir[2]];
+						immTemp = registroIfId.ir[3];
+						break;
+				   //BNEZ
+				   case 5:
+					   ingresarInstruccionesIF = false;
+					   ingresarInstruccionesID = false;
+					   aTemp = registros[registroIfId.ir[1]];
+					   bTemp = registros[registroIfId.ir[2]];
+					   immTemp = registroIfId.ir[3];
+					   break;
+				   case 32:
+						aTemp = registros[registroIfId.ir[1]];
+						bTemp = registros[registroIfId.ir[2]];
+						break;
+					case 8:
+						aTemp = registros[registroIfId.ir[1]];
+						immTemp = registroIfId.ir[3];
+						break;
+					case 34:
+						aTemp = registros[registroIfId.ir[1]];
+						bTemp = registros[registroIfId.ir[2]];
+						break;
+					case 12:
+						aTemp = registros[registroIfId.ir[1]];
+						bTemp = registros[registroIfId.ir[2]];
+						break;
+					case  14:
+						aTemp = registros[registroIfId.ir[1]];
+						bTemp = registros[registroIfId.ir[2]];
+						break;
+					//LW
+					case 35:
+						aTemp = registros[registroIfId.ir[1]];
+						immTemp = registroIfId.ir[3];
+						break;
+					//SW
+					case 43:
+						aTemp = registros[registroIfId.ir[1]];
+						immTemp = registroIfId.ir[3];
+						bTemp = registros[registroIfId.ir[2]];
+						break;
+					//CASE 50, INSTRUC LL,MISMO PROCEDIMIENTO QUE LW LO DIFERENTE ES EN WB
+					case 50:
+						aTemp = registros[registroIfId.ir[1]];
+						bTemp = registros[registroIfId.ir[2]];
+						immTemp = registroIfId.ir[3];
+						break;
+					//CASE SC
+					case 51:
+						aTemp = registros[registroIfId.ir[1]];
+						immTemp = registroIfId.ir[3];
+						bTemp = registros[registroIfId.ir[2]];
+						break;
+				}
+    		}
+			sem_wait(&semId);
+			sem_wait(&semEspereEx);
+			sem_wait(&semRegistros);
 
-    while(true){
-        switch(registroIfId.ir[0]){
-            case 63:
-                sem_post(&semEspereId);
-                pthread_mutex_lock( &mutex1 );
-                hilosFinalizados++;
-                if(etapasFinalizadas < barrera){
-                    etapasFinalizadas++;
-                }else{
-                    sem_post(&semMain);
-                }
-                pthread_mutex_unlock( &mutex1 );
-                pthread_exit(NULL); //Muerase
-                break;
+			registroIdEx.a = aTemp;
+			registroIdEx.b = bTemp;
+			registroIdEx.immm = immTemp;
 
-            //BEQZ
-            case 4:
-            	//detener ingreso de instrucciones, no hay prediccion
-            	ingresarInstrucciones = false;
-            	aTemp = registros[registroIfId.ir[1]];
-            	bTemp = registros[registroIfId.ir[2]];
-            	immTemp = registroIfId.ir[3];
-            	registroIfId.ir[0] = -1;
-            	break;
-           //BNEZ
-           case 5:
-        	   ingresarInstrucciones = false;
-        	   aTemp = registros[registroIfId.ir[1]];
-        	   bTemp = registros[registroIfId.ir[2]];
-        	   immTemp = registroIfId.ir[3];
-        	   registroIfId.ir[0] = -1;
-        	   break;
-           case 32:
-                aTemp = registros[registroIfId.ir[1]];
-                bTemp = registros[registroIfId.ir[2]];
-                break;
-            case 8:
-                aTemp = registros[registroIfId.ir[1]];
-                immTemp = registroIfId.ir[3];
-                break;
-            case 34:
-                aTemp = registros[registroIfId.ir[1]];
-                bTemp = registros[registroIfId.ir[2]];
-                break;
-            case 12:
-                aTemp = registros[registroIfId.ir[1]];
-                bTemp = registros[registroIfId.ir[2]];
-                break;
-            case  14:
-                aTemp = registros[registroIfId.ir[1]];
-                bTemp = registros[registroIfId.ir[2]];
-                break;
-            //LW
-            case 35:
-                aTemp = registros[registroIfId.ir[1]];
-                immTemp = registroIfId.ir[3];
-                break;
-            //SW
-            case 43:
-                aTemp = registros[registroIfId.ir[1]];
-                immTemp = registroIfId.ir[3];
-                bTemp = registros[registroIfId.ir[2]];
-                break;
-            //CASE 50, INSTRUC LL,MISMO PROCEDIMIENTO QUE LW LO DIFERENTE ES EN WB
-            case 50:
-              	aTemp = registros[registroIfId.ir[1]];
-                immTemp = registroIfId.ir[3];
-                break;
-            //CASE SC
-            case 51:
-            	aTemp = registros[registroIfId.ir[1]];
-                immTemp = registroIfId.ir[3];
-            	bTemp = registros[registroIfId.ir[2]];
-            	break;
-        }
-        sem_wait(&semId);
-        sem_wait(&semEspereEx);
-        sem_wait(&semRegistros);
+			for(int i = 0; i < 4; i++){
+				registroIdEx.ir[i] = registroIfId.ir[i];
+			}
 
-        registroIdEx.a = aTemp;
-        registroIdEx.b = bTemp;
-        registroIdEx.immm = immTemp;
-
-        for(int i = 0; i < 4; i++){
-            registroIdEx.ir[i] = registroIfId.ir[i];
-        }
-
-        registroIdEx.npc = registroIfId.npc;
+			registroIdEx.npc = registroIfId.npc;
 
 
         sem_post(&semEspereId);
@@ -305,10 +319,9 @@ void *rutinaID(void *args){
             sem_post(&semMain);
         }
         pthread_mutex_unlock( &mutex1 );
-
     }
 
-    pthread_exit(NULL);
+    return 0;
 }
 
 void *rutinaEX(void *args){
@@ -360,23 +373,24 @@ void *rutinaEX(void *args){
 			          aluOutputTemp = registroIdEx.a + registroIdEx.immm;
             		  bTemp = registroIdEx.b;
             		  break;
-
+                  //BEQZ
                   case 4:
                 	  if(registroIdEx.a == 0){
                 		  //computar nuevo pc
                 		  //if tiene acceso a EXMEM, libro pag 661,cambiar if
                 		  condTemp = 1; //simular que fue true la comparacion
                 		  aluOutputTemp = registroIdEx.npc + registroIdEx.immm;
-                		  ingresarInstrucciones = true;
+                		  ingresarInstruccionesIF = true;
                 	  }
                 	  break;
+                  //BNQZ
                   case 5:
                 	  if(registroIdEx.a != 0){
                 		  //computar nuevo pc
                 		  //setear pc en if, if tiene acceso a EXMEM,lbro pag 661
                 		  condTemp = 1; //simular que fue true la comparacion
                 		  aluOutputTemp = registroIdEx.npc + registroIdEx.immm;
-                		  ingresarInstrucciones = true;
+                		  ingresarInstruccionesIF = true;
                 	  }
                 	  break;
 			}
@@ -426,7 +440,7 @@ void *rutinaMEM(void *args){
         //Actualizacion del ALUOutput
         registroMemWb.aluOutput = registroExMem.aluOutput;
 
-        if(registroMemWb.ir[0] == 35){
+        if(registroMemWb.ir[0] == 35 || registroMemWb.ir[0] == 50){
         	//calcular Bloque
         	int posEnCache = loadCache((tamanoInstrucciones + registroExMem.aluOutput)/4);
         	registroMemWb.lmd = cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroExMem.aluOutput)%4];
@@ -435,18 +449,21 @@ void *rutinaMEM(void *args){
         //operacion Store
         else if(registroMemWb.ir[0] == 43){
         	int posEnCache = loadCache((tamanoInstrucciones + registroMemWb.aluOutput)/4);
+        	cacheDatos.estado[posEnCache] = 'm';
         	cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroMemWb.aluOutput)%4] = registroExMem.b;
         	//memoria[768 + registroMemWb.aluOutput] = registroExMem.b;
         }
+
         //Operacion SC
         else if(registroMemWb.ir[0] == 51){
         	int posEnCache = loadCache((tamanoInstrucciones + registroMemWb.aluOutput)/4);
         	//caso que RL difiere de lo que cargo LL
         	if(cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroMemWb.aluOutput)%4]
-        	   != registros[31]){
+        	   != registros[32]){
         		registros[registroExMem.b] = 0;
         	}
         	else{
+        		cacheDatos.estado[posEnCache] = 'm';
         		cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroMemWb.aluOutput)%4] = registroExMem.b;
         	}
         }
@@ -500,7 +517,7 @@ void *rutinaWB(void *args){
 
 	    	registros[registroMemWb.ir[2]] = registroMemWb.lmd;
 	    	//guardar en RL ergo ultimo registro de los 32
-	    	registros[31] = registroMemWb.lmd;
+	    	registros[32] = registroMemWb.lmd;
 	    }
 
 
