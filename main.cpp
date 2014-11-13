@@ -237,16 +237,28 @@ void *rutinaID(void *args){
                 aTemp = registros[registroIfId.ir[1]];
                 bTemp = registros[registroIfId.ir[2]];
                 break;
+            //LW
             case 35:
                 aTemp = registros[registroIfId.ir[1]];
                 immTemp = registroIfId.ir[3];
                 break;
+            //SW
             case 43:
                 aTemp = registros[registroIfId.ir[1]];
                 immTemp = registroIfId.ir[3];
                 bTemp = registros[registroIfId.ir[2]];
                 break;
-
+            //CASE 50, INSTRUC LL,MISMO PROCEDIMIENTO QUE LW LO DIFERENTE ES EN WB
+            case 50:
+              	aTemp = registros[registroIfId.ir[1]];
+                immTemp = registroIfId.ir[3];
+                break;
+            //CASE SC
+            case 51:
+            	aTemp = registros[registroIfId.ir[1]];
+                immTemp = registroIfId.ir[3];
+            	bTemp = registros[registroIfId.ir[2]];
+            	break;
         }
         sem_wait(&semId);
         sem_wait(&semEspereEx);
@@ -320,7 +332,14 @@ void *rutinaEX(void *args){
                       aluOutputTemp = registroIdEx.a + registroIdEx.immm;
                       bTemp = registroIdEx.b;
                       break;
-            }
+                  case 50:
+                	  aluOutputTemp = registroIdEx.a + registroIdEx.immm;
+                	  break;
+                  case 51:
+			          aluOutputTemp = registroIdEx.a + registroIdEx.immm;
+            		  bTemp = registroIdEx.b;
+            		  break;
+			}
 
 			sem_wait(&semEx);
 			sem_wait(&semEspereMem);
@@ -366,23 +385,31 @@ void *rutinaMEM(void *args){
         //Actualizacion del ALUOutput
         registroMemWb.aluOutput = registroExMem.aluOutput;
 
-        //Cambiar a cache de datos,operacion load
         if(registroMemWb.ir[0] == 35){
         	//calcular Bloque
         	int posEnCache = loadCache((tamanoInstrucciones + registroExMem.aluOutput)/4);
         	registroMemWb.lmd = cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroExMem.aluOutput)%4];
         }
 
-
-        //Cambiar a cache de datos
         //operacion Store
         else if(registroMemWb.ir[0] == 43){
         	int posEnCache = loadCache((tamanoInstrucciones + registroMemWb.aluOutput)/4);
         	cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroMemWb.aluOutput)%4] = registroExMem.b;
         	//memoria[768 + registroMemWb.aluOutput] = registroExMem.b;
-
-
         }
+        //Operacion SC
+        else if(registroMemWb.ir[0] == 51){
+        	int posEnCache = loadCache((tamanoInstrucciones + registroMemWb.aluOutput)/4);
+        	//caso que RL difiere de lo que cargo LL
+        	if(cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroMemWb.aluOutput)%4]
+        	   != registros[31]){
+        		registros[registroExMem.b] = 0;
+        	}
+        	else{
+        		cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroMemWb.aluOutput)%4] = registroExMem.b;
+        	}
+        }
+
 
         sem_post(&semEspereMem);
 
@@ -426,6 +453,13 @@ void *rutinaWB(void *args){
 	    else if(registroMemWb.ir[0] == 35){
 
 	    	registros[registroMemWb.ir[2]] = registroMemWb.lmd;
+	    }
+	    //operacion LL
+	    else if(registroMemWb.ir[0] == 50){
+
+	    	registros[registroMemWb.ir[2]] = registroMemWb.lmd;
+	    	//guardar en RL ergo ultimo registro de los 32
+	    	registros[31] = registroMemWb.lmd;
 	    }
 
 
