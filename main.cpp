@@ -46,6 +46,7 @@ struct Cache{
 };
 
 
+bool ingresarInstrucciones = true;
 int ciclo = 1;
 int quantum = 0;
 int pc = 0;
@@ -162,23 +163,24 @@ void *rutinaIF(void *args){
        sem_wait(&semIf);
        sem_wait(&semEspereId);
 
-       //cargar instruccion en IF/ID
-       //Ahora hay que usar la cache en vez de entrar a memoria
-       for(int i = 0; i < 4; i++){
-           registroIfId.ir[i] = memoria[pc+i];
-       }
+       if(ingresarInstrucciones){
+    	   //cargar instruccion en IF/ID
+    	   for(int i = 0; i < 4; i++){
+    		   registroIfId.ir[i] = memoria[pc+i];
+    	   }
 
-       if(registroIfId.ir[0] == 63){
-           suicidio = true;
-       }
+    	   if(registroIfId.ir[0] == 63){
+    		   suicidio = true;
+    	   }
 
-       pc += 4;
-       registroIfId.npc = pc;
+    	   pc += 4;
+    	   registroIfId.npc = pc;
 
-       pthread_mutex_lock( &mutex1 );
+    	   pthread_mutex_lock( &mutex1 );
 
-       if(suicidio){
+    	   if(suicidio){
            hilosFinalizados++;
+    	   }
        }
 
        if(etapasFinalizadas < barrera){
@@ -217,7 +219,25 @@ void *rutinaID(void *args){
                 pthread_mutex_unlock( &mutex1 );
                 pthread_exit(NULL); //Muerase
                 break;
-            case 32:
+
+            //BEQZ
+            case 4:
+            	//detener ingreso de instrucciones, no hay prediccion
+            	ingresarInstrucciones = false;
+            	aTemp = registros[registroIfId.ir[1]];
+            	bTemp = registros[registroIfId.ir[2]];
+            	immTemp = registroIfId.ir[3];
+            	registroIfId.ir[0] = -1;
+            	break;
+           //BNEZ
+           case 5:
+        	   ingresarInstrucciones = false;
+        	   aTemp = registros[registroIfId.ir[1]];
+        	   bTemp = registros[registroIfId.ir[2]];
+        	   immTemp = registroIfId.ir[3];
+        	   registroIfId.ir[0] = -1;
+        	   break;
+           case 32:
                 aTemp = registros[registroIfId.ir[1]];
                 bTemp = registros[registroIfId.ir[2]];
                 break;
@@ -294,6 +314,7 @@ void *rutinaID(void *args){
 void *rutinaEX(void *args){
       int aluOutputTemp = -1;
       int bTemp = -1;
+      int condTemp = 0;
 
       while(true){
 			switch(registroExMem.ir[0]){
@@ -339,6 +360,25 @@ void *rutinaEX(void *args){
 			          aluOutputTemp = registroIdEx.a + registroIdEx.immm;
             		  bTemp = registroIdEx.b;
             		  break;
+
+                  case 4:
+                	  if(registroIdEx.a == 0){
+                		  //computar nuevo pc
+                		  //if tiene acceso a EXMEM, libro pag 661,cambiar if
+                		  condTemp = 1; //simular que fue true la comparacion
+                		  aluOutputTemp = registroIdEx.npc + registroIdEx.immm;
+                		  ingresarInstrucciones = true;
+                	  }
+                	  break;
+                  case 5:
+                	  if(registroIdEx.a != 0){
+                		  //computar nuevo pc
+                		  //setear pc en if, if tiene acceso a EXMEM,lbro pag 661
+                		  condTemp = 1; //simular que fue true la comparacion
+                		  aluOutputTemp = registroIdEx.npc + registroIdEx.immm;
+                		  ingresarInstrucciones = true;
+                	  }
+                	  break;
 			}
 
 			sem_wait(&semEx);
@@ -346,6 +386,7 @@ void *rutinaEX(void *args){
 
 			registroExMem.aluOutput = aluOutputTemp;
 			registroExMem.b = bTemp;
+			registroExMem.cond = condTemp;
 
 			for(int i = 0; i < 4; i++){
 				registroExMem.ir[i] = registroIdEx.ir[i];
