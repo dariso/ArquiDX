@@ -58,7 +58,7 @@ int hilosFinalizados = 0;
 vector<int> memoria(tamanoMemoria, 1);
 //registros inicializados en 1
 //RL es el reg en la pos 31
-vector<int> registros(numRegistros,1);
+vector<int> registros(numRegistros,0);
 vector<int> respaldoHilos(34 * 5, -1);
 IfId registroIfId = {0,{-1,-1,-1,-1}};
 IdEx registroIdEx = {0,0,0,0,{-1,-1,-1,-1}};
@@ -140,7 +140,7 @@ int loadCache(int numBloque){
     int indiceMemoria = numBloque * 4;
     if(cacheDatos.etiqueta[indice] != numBloque){
     	if(cacheDatos.estado[indice] == 'm'){
-				///remplazo bloque modificado, escribir en memoria
+				///reemplazo bloque modificado, escribir en memoria
 				int dirMemoriaViejo = cacheDatos.etiqueta[indice]*4;
 				for(int i = 0;i<4;i++){
 					memoria[dirMemoriaViejo+i] = cacheDatos.bloques[indice][i];
@@ -165,6 +165,12 @@ void *rutinaIF(void *args){
 
        if(ingresarInstruccionesIF){
 
+           //cargar instruccion en IF/ID
+    	   for(int i = 0; i < 4; i++){
+    		   registroIfId.ir[i] = memoria[pc+i];
+    	   }
+
+
     	   if((registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5)
     			   && (registroExMem.cond == 1)){
 
@@ -177,10 +183,6 @@ void *rutinaIF(void *args){
     	   }
 
 
-    	   //cargar instruccion en IF/ID
-    	   for(int i = 0; i < 4; i++){
-    		   registroIfId.ir[i] = memoria[pc+i];
-    	   }
 
     	   if(registroIfId.ir[0] == 63){
     		   suicidio = true;
@@ -451,7 +453,7 @@ void *rutinaMEM(void *args){
         	int posEnCache = loadCache((tamanoInstrucciones + registroMemWb.aluOutput)/4);
         	cacheDatos.estado[posEnCache] = 'm';
         	cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroMemWb.aluOutput)%4] = registroExMem.b;
-        	//memoria[768 + registroMemWb.aluOutput] = registroExMem.b;
+        	memoria[768 + registroMemWb.aluOutput] = registroExMem.b;
         }
 
         //Operacion SC
@@ -549,8 +551,8 @@ int main (){
     	for(int j = 0; j < 4 ; j++){
     		cacheDatos.bloques[i][j] = 0;
     	}
-    	cacheDatos.estado[i] = -1;
-    	cacheDatos.etiqueta[i] = 'c';
+    	cacheDatos.estado[i] = 'c';
+    	cacheDatos.etiqueta[i] = -1;
     }
 
 
