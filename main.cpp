@@ -49,6 +49,7 @@ struct Cache{
 
 bool ingresarInstruccionesIF = true;
 bool ingresarInstruccionesID = true;
+bool ingresarInstruccionesEx = true;
 int ciclo = 0;
 int quantum = 0;
 int pc = 0;
@@ -164,29 +165,41 @@ void *rutinaIF(void *args){
        sem_wait(&semEspereId);
 
        if(ingresarInstruccionesIF){
-       cout<<"Soy if cargando instruccion# "<<memoria[pc]<<endl;
+    	   ///hay un branch tomado
+    	   if((registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5)
+    	      	     	      			   && (registroExMem.cond == 1)){
+    		   cout<<"Soy if entre al branch tomado"<<endl;
+    		   cout<<"PC actual "<<pc<<"nuevo pc "<<registroExMem.aluOutput<<endl;
+     		   pc = registroExMem.aluOutput;
+     		   //se pone en cero para que if no lea nuevamente un branch tomado en el siguiente
+     		   //ciclo ya que ex quien es el que actualiza el exMem
+     		   //esta sin instrucciones para procesar por el atraso del branch.
+     		   registroExMem.ir[0] = 0;
+       	   }
+           //liberar id, notar que esto siempre lo hace IF mientras el tambien este activo
+    	   //cargando instrucciones. Como id lee primero el registro ifid, no sucedera
+    	   //el caso de que al liberar id, if cargue nuevas instrucciones antes de que
+    	   //id haya podido leer.
+    	   ingresarInstruccionesID = true;
+
+    	   cout<<"Soy if cargando instruccion# "<<memoria[pc]<<endl;
            //cargar instruccion en IF/ID
     	   for(int i = 0; i < 4; i++){
     		   registroIfId.ir[i] = memoria[pc+i];
     	   }
+    	   //se cargo un branch, detener instrucciones hasta que se resuelva el mismo.
+    	   //esta variable la pone en true el main.
+    	   if(registroIfId.ir[0] == 4 || registroIfId.ir[0] == 5){
+    	   					ingresarInstruccionesIF = false;
+    	   }
 
-    	   if(registroIfId.ir[0] == 63){
+    	   else if(registroIfId.ir[0] == 63){
     		   suicidio = true;
     	   }
 
-    	   ///hay un branch tomado
-    	   else if((registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5)
-    	     	      			   && (registroExMem.cond == 1)){
+       	   pc += 4;
+       	   registroIfId.npc = pc;
 
-    	     	      		   pc = pc + registroExMem.aluOutput;
-    	     	      		   ingresarInstruccionesID = true;
-
-    	   }
-    	   else{
-    		   pc += 4;
-    	   }
-
-    	   registroIfId.npc = pc;
        }
 
        pthread_mutex_lock( &mutex1 );
@@ -230,16 +243,12 @@ void *rutinaID(void *args){
 					//BEQZ
 					case 4:
 						//detener ingreso de instrucciones, no hay prediccion
-						ingresarInstruccionesIF = false;
-						ingresarInstruccionesID = false;
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
 						immTemp = registroIfId.ir[3];
 						break;
 				   //BNEZ
 				   case 5:
-					   ingresarInstruccionesIF = false;
-					   ingresarInstruccionesID = false;
 					   aTemp = registros[registroIfId.ir[1]];
 					   bTemp = registros[registroIfId.ir[2]];
 					   immTemp = registroIfId.ir[3];
@@ -263,14 +272,12 @@ void *rutinaID(void *args){
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
 						immTemp = registroIfId.ir[3];
-
 						break;
 					case  14:
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
 						immTemp = registroIfId.ir[3];
-
-						break;
+                        break;
 					//LW
 					case 35:
 						aTemp = registros[registroIfId.ir[1]];
@@ -294,24 +301,34 @@ void *rutinaID(void *args){
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
 						immTemp = registroIfId.ir[3];
-
-						break;
+                        break;
 				}
     		}
 
 			sem_wait(&semEspereEx);
 
+            if(ingresarInstruccionesID){
+            	registroIdEx.a = aTemp;
+				registroIdEx.b = bTemp;
+				registroIdEx.immm = immTemp;
 
-			registroIdEx.a = aTemp;
-			registroIdEx.b = bTemp;
-			registroIdEx.immm = immTemp;
+				cout<<"Soy id pasando la instruccion "<< registroIfId.ir[0]<<" de ifid a idex"<<endl;
+				for(int i = 0; i < 4; i++){
+					registroIdEx.ir[i] = registroIfId.ir[i];
+				}
 
-			cout<<"Soy id pasando la instruccion "<< registroIfId.ir[0]<<" de ifid a idex"<<endl;
-			for(int i = 0; i < 4; i++){
-				registroIdEx.ir[i] = registroIfId.ir[i];
-			}
+				registroIdEx.npc = registroIfId.npc;
+				//en caso de que id no estuviera leyendo el registro idex por branch
+				//se deja leer el idex una vez id lo actualizo, por si se da el caso de branch
+				//tomado.
+				ingresarInstruccionesEx = true;
 
-			registroIdEx.npc = registroIfId.npc;
+				//si lo que se leyo es un branch, hay que detener id hasta
+				//que este se resuelva. IF libera esta variable.
+				if(registroIdEx.ir[0] == 4 || registroIdEx.ir[0] == 5){
+					ingresarInstruccionesID = false;
+				}
+            }
 
 
         sem_post(&semEspereId);
@@ -346,8 +363,7 @@ void *rutinaEX(void *args){
 
       while(true){
     	    sem_wait(&semEx);
-
-			switch(registroIdEx.ir[0]){
+            switch(registroIdEx.ir[0]){
                   case 63:
                       suicidio = true;
                       break;
@@ -387,35 +403,52 @@ void *rutinaEX(void *args){
                 		  //if tiene acceso a EXMEM, libro pag 661,cambiar if
                 		  condTemp = 1; //simular que fue true la comparacion
                 		  aluOutputTemp = registroIdEx.npc + registroIdEx.immm;
-                		  ingresarInstruccionesIF = true;
+
                 	  }
-                	  break;
+                  break;
                   //BNQZ
                   case 5:
+                	  cout<<"Soy ex entre en case 5 bnqz"<<endl;
+                	  cout<<"el valor del registro del salto tiene un " << registroIdEx.a<<endl;
                 	  if(registroIdEx.a != 0){
+                		  cout<<"Soy ex entre case 5 branch BNQZ tomado"<<endl;
+
                 		  //computar nuevo pc
                 		  //setear pc en if, if tiene acceso a EXMEM,lbro pag 661
                 		  condTemp = 1; //simular que fue true la comparacion
                 		  aluOutputTemp = registroIdEx.npc + registroIdEx.immm;
-                		  ingresarInstruccionesIF = true;
-                	  }
-                	  break;
+
+                		  cout<<"Soy ex hay un " << condTemp << " en condtemp y un " <<
+                				  aluOutputTemp <<" en aluOutputTemp"<<endl;
+
+                      }
+                  break;
 			}
 
 
 			sem_wait(&semEspereMem);
 
-			registroExMem.aluOutput = aluOutputTemp;
-			registroExMem.b = bTemp;
-			registroExMem.cond = condTemp;
+			//si leyo un branch se evita que actualice el registroExmem hasta que if lo lea.
+			if(ingresarInstruccionesEx){
 
-			cout<<"Soy ex pasando la instruccion "<< registroIdEx.ir[0]<<" de idex a exmem"<<endl;
-			for(int i = 0; i < 4; i++){
-				registroExMem.ir[i] = registroIdEx.ir[i];
+				registroExMem.aluOutput = aluOutputTemp;
+				registroExMem.b = bTemp;
+				registroExMem.cond = condTemp;
+
+				cout<<"Soy ex pasando la instruccion "<< registroIdEx.ir[0]<<" de idex a exmem"<<endl;
+				for(int i = 0; i < 4; i++){
+					registroExMem.ir[i] = registroIdEx.ir[i];
+				}
+
+				if(registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5){
+					ingresarInstruccionesEx = false;
+					//matamos la instruccion de branch que quedo.
+					registroIdEx.ir[0] = 0;
+				}
 			}
 
 
-			sem_post(&semEspereEx);
+            sem_post(&semEspereEx);
 
 			pthread_mutex_lock( &mutex1 );
 
@@ -608,12 +641,19 @@ int main (){
 	while(!finalizarEjecucion){
 		ciclo++;
 		cout<<"Se inicio el ciclo de reloj# " << ciclo << endl;
+
+		//Si hay un 4 o 5 en ExMem.ir[0] = la instruccion de branch fue leida y
+		//resuelta por ex, ergo se debe dejar pasar de nuevo las instrucciones.
+		if(registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5){
+			ingresarInstruccionesIF = true;
+        }
+
 		iniciarCicloReloj();
 
 		sem_wait(&semMain);
         etapasFinalizadas = 0;
         barrera = 4 - hilosFinalizados;
-        if(hilosFinalizados == 5){
+        if(hilosFinalizados == 5 || ciclo > 10){
 		   finalizarEjecucion = true;
         }
 	}
