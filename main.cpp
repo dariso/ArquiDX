@@ -49,7 +49,7 @@ struct Cache{
 
 bool ingresarInstruccionesIF = true;
 bool ingresarInstruccionesID = true;
-int ciclo = 1;
+int ciclo = 0;
 int quantum = 0;
 int pc = 0;
 int etapasFinalizadas = 0;
@@ -59,11 +59,11 @@ vector<int> memoria(tamanoMemoria, 1);
 //registros inicializados en 1
 //RL es el reg en la pos 31
 vector<int> registros(numRegistros,0);
-vector<int> respaldoHilos(34 * 5, -1);
-IfId registroIfId = {0,{-1,-1,-1,-1}};
-IdEx registroIdEx = {0,0,0,0,{-1,-1,-1,-1}};
-ExMem registroExMem = {0,0,0,{-1,-1,-1,-1}};
-MemWb registroMemWb = {0,0,{-1,-1,-1,-1}};
+vector<int> respaldoHilos(34 * 5, 0);
+IfId registroIfId = {0,{0,0,0,0}};
+IdEx registroIdEx = {0,0,0,0,{0,0,0,0}};
+ExMem registroExMem = {0,0,0,{0,0,0,0}};
+MemWb registroMemWb = {0,0,{-0,0,0,0}};
 Cache cacheDatos;
 sem_t semIf,semId,semEx,semMem,semWb,semMain,semRegistros,semEspereId, semEspereEx,
       semEspereMem,semEspereWb;
@@ -164,74 +164,67 @@ void *rutinaIF(void *args){
        sem_wait(&semEspereId);
 
        if(ingresarInstruccionesIF){
-
+       cout<<"Soy if cargando instruccion# "<<memoria[pc]<<endl;
            //cargar instruccion en IF/ID
     	   for(int i = 0; i < 4; i++){
     		   registroIfId.ir[i] = memoria[pc+i];
     	   }
 
+    	   if(registroIfId.ir[0] == 63){
+    		   suicidio = true;
+    	   }
 
-    	   if((registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5)
-    			   && (registroExMem.cond == 1)){
+    	   ///hay un branch tomado
+    	   else if((registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5)
+    	     	      			   && (registroExMem.cond == 1)){
 
-    		   pc = pc + registroExMem.aluOutput;
-    		   ingresarInstruccionesID = true;
+    	     	      		   pc = pc + registroExMem.aluOutput;
+    	     	      		   ingresarInstruccionesID = true;
 
     	   }
     	   else{
     		   pc += 4;
     	   }
 
-
-
-    	   if(registroIfId.ir[0] == 63){
-    		   suicidio = true;
-    	   }
-
-
     	   registroIfId.npc = pc;
+       }
 
-    	   pthread_mutex_lock( &mutex1 );
+       pthread_mutex_lock( &mutex1 );
 
-    	   if(suicidio){
-           hilosFinalizados++;
-    	   }
+       if(suicidio){
+    	   hilosFinalizados++;
        }
 
        if(etapasFinalizadas < barrera){
-           etapasFinalizadas++;
+    	   etapasFinalizadas++;
        }
-       else{
 
-          sem_post(&semMain);
+       else{
+    	   sem_post(&semMain);
        }
+
        pthread_mutex_unlock( &mutex1 );
 
        if(suicidio){
-          pthread_exit(NULL);
+    	   pthread_exit(NULL);
        }
    }
    return 0;
 }
 
 void *rutinaID(void *args){
+	bool suicidio = false;
     int aTemp = -1;
     int bTemp = -1;
     int immTemp = -1;
     	while(true){
+    		sem_wait(&semId);
+    		sem_wait(&semRegistros);//espera a que wb escriba en registros
+
     		if(ingresarInstruccionesID){
 				switch(registroIfId.ir[0]){
 					case 63:
-						sem_post(&semEspereId);
-						pthread_mutex_lock( &mutex1 );
-						hilosFinalizados++;
-						if(etapasFinalizadas < barrera){
-							etapasFinalizadas++;
-						}else{
-							sem_post(&semMain);
-						}
-						pthread_mutex_unlock( &mutex1 );
-						pthread_exit(NULL); //Muerase
+						suicidio = true;
 						break;
 
 					//BEQZ
@@ -254,26 +247,34 @@ void *rutinaID(void *args){
 				   case 32:
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
+						immTemp = registroIfId.ir[3];
 						break;
 					case 8:
 						aTemp = registros[registroIfId.ir[1]];
+						bTemp = registros[registroIfId.ir[2]];
 						immTemp = registroIfId.ir[3];
 						break;
 					case 34:
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
+						immTemp = registroIfId.ir[3];
 						break;
 					case 12:
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
+						immTemp = registroIfId.ir[3];
+
 						break;
 					case  14:
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
+						immTemp = registroIfId.ir[3];
+
 						break;
 					//LW
 					case 35:
 						aTemp = registros[registroIfId.ir[1]];
+						bTemp = registros[registroIfId.ir[2]];
 						immTemp = registroIfId.ir[3];
 						break;
 					//SW
@@ -296,14 +297,15 @@ void *rutinaID(void *args){
 						break;
 				}
     		}
-			sem_wait(&semId);
+
 			sem_wait(&semEspereEx);
-			sem_wait(&semRegistros);
+
 
 			registroIdEx.a = aTemp;
 			registroIdEx.b = bTemp;
 			registroIdEx.immm = immTemp;
 
+			cout<<"Soy id pasando la instruccion "<< registroIfId.ir[0]<<" de ifid a idex"<<endl;
 			for(int i = 0; i < 4; i++){
 				registroIdEx.ir[i] = registroIfId.ir[i];
 			}
@@ -315,36 +317,38 @@ void *rutinaID(void *args){
 
         pthread_mutex_lock( &mutex1 );
 
-        if(etapasFinalizadas < 4){
-            etapasFinalizadas++;
-        }else{
-            sem_post(&semMain);
+        if(suicidio){
+        	hilosFinalizados++;
+        }
+
+        if(etapasFinalizadas < barrera){
+        	etapasFinalizadas++;
+        }
+        else{
+        	sem_post(&semMain);
         }
         pthread_mutex_unlock( &mutex1 );
+
+        if(suicidio){
+        	pthread_exit(NULL); //Muerase
+      	}
     }
 
     return 0;
 }
 
 void *rutinaEX(void *args){
+	  bool suicidio = false;
       int aluOutputTemp = -1;
       int bTemp = -1;
       int condTemp = 0;
 
       while(true){
-			switch(registroExMem.ir[0]){
+    	    sem_wait(&semEx);
+
+			switch(registroIdEx.ir[0]){
                   case 63:
-                      pthread_mutex_lock( &mutex1 );
-                      hilosFinalizados++;
-                      if(etapasFinalizadas < barrera){
-                          etapasFinalizadas++;
-                      }
-                      else{
-                          sem_post(&semMain);
-                      }
-                      pthread_mutex_unlock( &mutex1 );
-                      sem_post(&semEspereEx);
-                      pthread_exit(NULL); //Muerase
+                      suicidio = true;
                       break;
                   case 32:
                       aluOutputTemp = registroIdEx.a + registroIdEx.b;
@@ -397,13 +401,14 @@ void *rutinaEX(void *args){
                 	  break;
 			}
 
-			sem_wait(&semEx);
+
 			sem_wait(&semEspereMem);
 
 			registroExMem.aluOutput = aluOutputTemp;
 			registroExMem.b = bTemp;
 			registroExMem.cond = condTemp;
 
+			cout<<"Soy ex pasando la instruccion "<< registroIdEx.ir[0]<<" de idex a exmem"<<endl;
 			for(int i = 0; i < 4; i++){
 				registroExMem.ir[i] = registroIdEx.ir[i];
 			}
@@ -413,13 +418,22 @@ void *rutinaEX(void *args){
 
 			pthread_mutex_lock( &mutex1 );
 
-			if(etapasFinalizadas < 4){
-		         etapasFinalizadas++;
+			if(suicidio){
+				 hilosFinalizados++;
+			}
+
+			if(etapasFinalizadas < barrera){
+				 etapasFinalizadas++;
 			}
 			else{
-			    sem_post(&semMain);
-		    }
+				 sem_post(&semMain);
+			}
+
 			pthread_mutex_unlock( &mutex1 );
+
+			if(suicidio){
+				 pthread_exit(NULL); //Muerase
+			}
     }
     return 0;
 }
@@ -429,8 +443,8 @@ void *rutinaMEM(void *args){
     bool suicidio = false;
 	while(true){
 	    sem_wait(&semMem);
-	    sem_wait(&semEspereWb);
-
+        sem_wait(&semEspereWb);
+	    cout<<"Soy Mem pasando la instruccion "<< registroExMem.ir[0]<<" de Exmem a memWb"<<endl;
         for(int i = 0; i < 4; i++){
         	registroMemWb.ir[i] = registroExMem.ir[i];
         }
@@ -482,6 +496,7 @@ void *rutinaMEM(void *args){
             etapasFinalizadas++;
 	    }
         else{
+        	cout<<"valorbarrera= "<<barrera<<"etapasF= "<<etapasFinalizadas<<endl;
 	        sem_post(&semMain);
 	    }
 
@@ -495,11 +510,16 @@ void *rutinaMEM(void *args){
 }
 
 void *rutinaWB(void *args){
+	bool suicidio = false;
     while(true){
 	    sem_wait(&semWb);
+    	cout<<"Soy Wb tengo en MemWb la instruccion " << registroMemWb.ir[0]<<endl;
+	    if(registroMemWb.ir[0] == 63){
+	    	suicidio = true;
+	    }
 
 	    //Operaciones registro immm
-	    if(registroMemWb.ir[0] == 8){
+	    else if(registroMemWb.ir[0] == 8){
 
 	        registros[registroMemWb.ir[2]] = registroMemWb.aluOutput;
 	    }
@@ -528,6 +548,10 @@ void *rutinaWB(void *args){
 
 	    pthread_mutex_lock( &mutex1 );
 
+	    if(suicidio){
+	    	hilosFinalizados++;
+	    }
+
 	    if(etapasFinalizadas < barrera){
             etapasFinalizadas++;
 	    }
@@ -537,9 +561,12 @@ void *rutinaWB(void *args){
 
 	    pthread_mutex_unlock( &mutex1 );
 
-    }
+	    if(suicidio){
+	    	  pthread_exit(NULL);
+	    }
 
-    pthread_exit(NULL);
+    }
+    return 0;
 }
 
 int main (){
@@ -571,12 +598,14 @@ int main (){
 
 
 	while(!finalizarEjecucion){
+		ciclo++;
+		cout<<"Se inicio el ciclo de reloj# " << ciclo << endl;
 		iniciarCicloReloj();
+
 		sem_wait(&semMain);
-        ciclo++;
         etapasFinalizadas = 0;
-        barrera -= hilosFinalizados;
-        if(registroMemWb.ir[0] == 63){
+        barrera = 4 - hilosFinalizados;
+        if(hilosFinalizados == 5){
 		   finalizarEjecucion = true;
         }
 	}
