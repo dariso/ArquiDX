@@ -653,7 +653,7 @@ int main (){
 		sem_wait(&semMain);
         etapasFinalizadas = 0;
         barrera = 4 - hilosFinalizados;
-        if(hilosFinalizados == 5 || ciclo > 10){
+        if(hilosFinalizados == 5){
 		   finalizarEjecucion = true;
         }
 	}
