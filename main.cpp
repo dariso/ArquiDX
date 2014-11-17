@@ -292,8 +292,9 @@ void *rutinaID(void *args){
 					//CASE SC
 					case 51:
 						aTemp = registros[registroIfId.ir[1]];
-						immTemp = registroIfId.ir[3];
 						bTemp = registros[registroIfId.ir[2]];
+						immTemp = registroIfId.ir[3];
+
 						break;
 				}
     		}
@@ -476,9 +477,12 @@ void *rutinaMEM(void *args){
         	//caso que RL difiere de lo que cargo LL
         	if(cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroMemWb.aluOutput)%4]
         	   != registros[32]){
-        		registros[registroExMem.b] = 0;
+        		cout<<"Instruccion SC fallo"<<endl;
+        		registroMemWb.lmd = 0;
         	}
         	else{
+        		cout<<"Instruccion SC exitosa"<<endl;
+        		registroMemWb.lmd  = 1;
         		cacheDatos.estado[posEnCache] = 'm';
         		cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroMemWb.aluOutput)%4] = registroExMem.b;
         	}
@@ -540,6 +544,10 @@ void *rutinaWB(void *args){
 	    	registros[registroMemWb.ir[2]] = registroMemWb.lmd;
 	    	//guardar en RL ergo ultimo registro de los 32
 	    	registros[32] = registroMemWb.lmd;
+	    }
+
+	    else if(registroMemWb.ir[0] == 51){
+	    	registros[registroMemWb.ir[2]] = registroMemWb.lmd;
 	    }
 
 
@@ -612,7 +620,7 @@ int main (){
 
     printf("Fin de la ejecución del programa:\n");
     printf("\nRegistros: \n");
-    for(int i=0; i<32; i++){
+    for(int i=0; i<33; i++){
         printf("\tR%d = %d\n", i, registros[i]);
     }
     printf("\nMemoria: \n");
