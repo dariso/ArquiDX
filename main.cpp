@@ -46,7 +46,6 @@ struct Cache{
     char estado[8];
 };
 
-
 bool ingresarInstruccionesIF = true;
 bool ingresarInstruccionesID = true;
 bool ingresarInstruccionesEx = true;
@@ -61,6 +60,7 @@ vector<int> memoria(tamanoMemoria, 1);
 //RL es el reg en la pos 31
 vector<int> registros(numRegistros,0);
 vector<int> respaldoHilos(34 * 5, 0);
+vector<bool> etiquetasRegistros(numRegistros, false);
 IfId registroIfId = {0,{0,0,0,0}};
 IdEx registroIdEx = {0,0,0,0,{0,0,0,0}};
 ExMem registroExMem = {0,0,0,{0,0,0,0}};
@@ -249,19 +249,43 @@ void *rutinaID(void *args){
 						break;
 				   //BNEZ
 				   case 5:
-					   aTemp = registros[registroIfId.ir[1]];
-					   bTemp = registros[registroIfId.ir[2]];
-					   immTemp = registroIfId.ir[3];
+                        cout << "Etiqueta Registros " << etiquetasRegistros[registroIfId.ir[1]] << endl;
+                       if(!etiquetasRegistros[registroIfId.ir[1]]){
+                            aTemp = registros[registroIfId.ir[1]];
+                            bTemp = registros[registroIfId.ir[2]];
+                            immTemp = registroIfId.ir[3];
+                            etiquetasRegistros[registroIfId.ir[2]] = true;
+                            ingresarInstruccionesIF = false;
+                       }else{
+                            ingresarInstruccionesIF = false;
+                            ingresarInstruccionesID = false;
+                            ingresarInstruccionesEx = false;
+                       }
 					   break;
 				   case 32:
-						aTemp = registros[registroIfId.ir[1]];
-						bTemp = registros[registroIfId.ir[2]];
-						immTemp = registroIfId.ir[3];
+                        if(!etiquetasRegistros[registroIfId.ir[2]]){
+                            aTemp = registros[registroIfId.ir[1]];
+                            bTemp = registros[registroIfId.ir[2]];
+                            immTemp = registroIfId.ir[3];
+                            etiquetasRegistros[registroIfId.ir[2]] = true;
+                        }else{
+                            ingresarInstruccionesIF = false;
+                            ingresarInstruccionesID = false;
+                            ingresarInstruccionesEx = false;
+                        }
 						break;
 					case 8:
-						aTemp = registros[registroIfId.ir[1]];
-						bTemp = registros[registroIfId.ir[2]];
-						immTemp = registroIfId.ir[3];
+                        cout << "Etiqueta Registros " << etiquetasRegistros[registroIfId.ir[2]] << endl;
+					    if(!etiquetasRegistros[registroIfId.ir[2]]){
+                            aTemp = registros[registroIfId.ir[1]];
+                            bTemp = registros[registroIfId.ir[2]];
+                            immTemp = registroIfId.ir[3];
+                            etiquetasRegistros[registroIfId.ir[2]] = true;
+					    }else{
+                            ingresarInstruccionesIF = false;
+                            ingresarInstruccionesID = false;
+                            ingresarInstruccionesEx = false;
+                        }
 						break;
 					case 34:
 						aTemp = registros[registroIfId.ir[1]];
@@ -443,7 +467,7 @@ void *rutinaEX(void *args){
 				if(registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5){
 					ingresarInstruccionesEx = false;
 					//matamos la instruccion de branch que quedo.
-					registroIdEx.ir[0] = 0;
+					registroIfId.ir[0] = 0;
 				}
 			}
 
@@ -559,6 +583,9 @@ void *rutinaWB(void *args){
 	    else if(registroMemWb.ir[0] == 8){
 
 	        registros[registroMemWb.ir[2]] = registroMemWb.aluOutput;
+	        etiquetasRegistros[registroMemWb.ir[2]] = false;
+	        ingresarInstruccionesID = true;
+
 	    }
 	    //Operaciones registro registro
 	    else if(registroMemWb.ir[0] == 32 || registroMemWb.ir[0] == 34 || registroMemWb.ir[0] == 12 ||
@@ -653,7 +680,7 @@ int main (){
 		sem_wait(&semMain);
         etapasFinalizadas = 0;
         barrera = 4 - hilosFinalizados;
-        if(hilosFinalizados == 5){
+        if(hilosFinalizados == 5 || ciclo > 20){
 		   finalizarEjecucion = true;
         }
 	}
@@ -663,10 +690,10 @@ int main (){
     for(int i=0; i<33; i++){
         printf("\tR%d = %d\n", i, registros[i]);
     }
-    printf("\nMemoria: \n");
+    /*printf("\nMemoria: \n");
     for(int i=768; i<1600; i++){
         printf("\tM%d = %d\n", i, memoria[i]);
-    }
+    }*/
 
     cout<<"Cache:"<<endl;
     for(int i = 0; i < 8; i++ ){
