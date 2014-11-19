@@ -60,6 +60,7 @@ vector<int> memoria(tamanoMemoria, 1);
 //RL es el reg en la pos 31
 vector<int> registros(numRegistros,0);
 vector<int> respaldoHilos(34 * 5, 0);
+//etiquetas de los registros que van a ser modificados, true = va a ser modificado
 vector<bool> etiquetasRegistros(numRegistros, false);
 IfId registroIfId = {0,{0,0,0,0}};
 IdEx registroIdEx = {0,0,0,0,{0,0,0,0}};
@@ -166,6 +167,8 @@ void *rutinaIF(void *args){
 
        if(ingresarInstruccionesIF){
     	   ///hay un branch tomado
+    	   cout<<"Soy if en el exmem cond hay un"<<registroExMem.cond<<endl;
+    	   cout<<"Soy if en el registro Exmem ir hay un"<< registroExMem.ir[0]<<endl;
     	   if((registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5)
     	      	     	      			   && (registroExMem.cond == 1)){
     		   cout<<"Soy if entre al branch tomado"<<endl;
@@ -226,6 +229,7 @@ void *rutinaIF(void *args){
 }
 
 void *rutinaID(void *args){
+    bool conflictoDatos = false;
 	bool suicidio = false;
     int aTemp = -1;
     int bTemp = -1;
@@ -235,6 +239,7 @@ void *rutinaID(void *args){
     		sem_wait(&semRegistros);//espera a que wb escriba en registros
 
     		if(ingresarInstruccionesID){
+    			conflictoDatos = false;
 				switch(registroIfId.ir[0]){
 					case 63:
 						suicidio = true;
@@ -249,44 +254,37 @@ void *rutinaID(void *args){
 						break;
 				   //BNEZ
 				   case 5:
-                        cout << "Etiqueta Registros " << etiquetasRegistros[registroIfId.ir[1]] << endl;
-                       if(!etiquetasRegistros[registroIfId.ir[1]]){
-                            aTemp = registros[registroIfId.ir[1]];
-                            bTemp = registros[registroIfId.ir[2]];
-                            immTemp = registroIfId.ir[3];
-                            etiquetasRegistros[registroIfId.ir[2]] = true;
-                            ingresarInstruccionesIF = false;
-                       }else{
-                            ingresarInstruccionesIF = false;
-                            ingresarInstruccionesID = false;
-                            ingresarInstruccionesEx = false;
+                       cout << "Etiqueta Registros " << etiquetasRegistros[registroIfId.ir[1]] << endl;
+                       aTemp = registros[registroIfId.ir[1]];
+                       bTemp = registros[registroIfId.ir[2]];
+                       immTemp = registroIfId.ir[3];
+                       if(etiquetasRegistros[registroIfId.ir[1]]){
+                    	   cout<<"Soy id el registro"<<registroIfId.ir[1]<<" esta bloqueado para escritura"<<endl;
+                    	   conflictoDatos = true;
                        }
 					   break;
+					case 8:
+						cout << "Etiqueta Registros " << etiquetasRegistros[registroIfId.ir[2]] << endl;
+						aTemp = registros[registroIfId.ir[1]];
+			            bTemp = registros[registroIfId.ir[2]];
+	                    immTemp = registroIfId.ir[3];
+						if(etiquetasRegistros[registroIfId.ir[2]]){
+							cout<<"Soy id el registro "<< registroIfId.ir[2]<<" esta bloqueado para escritura"<<endl;
+		                    conflictoDatos = true;
+				        }
+						else{
+							etiquetasRegistros[registroIfId.ir[2]] = true;
+						}
+						break;
 				   case 32:
                         if(!etiquetasRegistros[registroIfId.ir[2]]){
                             aTemp = registros[registroIfId.ir[1]];
                             bTemp = registros[registroIfId.ir[2]];
                             immTemp = registroIfId.ir[3];
                             etiquetasRegistros[registroIfId.ir[2]] = true;
-                        }else{
-                            ingresarInstruccionesIF = false;
-                            ingresarInstruccionesID = false;
-                            ingresarInstruccionesEx = false;
                         }
 						break;
-					case 8:
-                        cout << "Etiqueta Registros " << etiquetasRegistros[registroIfId.ir[2]] << endl;
-					    if(!etiquetasRegistros[registroIfId.ir[2]]){
-                            aTemp = registros[registroIfId.ir[1]];
-                            bTemp = registros[registroIfId.ir[2]];
-                            immTemp = registroIfId.ir[3];
-                            etiquetasRegistros[registroIfId.ir[2]] = true;
-					    }else{
-                            ingresarInstruccionesIF = false;
-                            ingresarInstruccionesID = false;
-                            ingresarInstruccionesEx = false;
-                        }
-						break;
+
 					case 34:
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
@@ -331,7 +329,7 @@ void *rutinaID(void *args){
 
 			sem_wait(&semEspereEx);
 
-            if(ingresarInstruccionesID){
+            if(ingresarInstruccionesID && !conflictoDatos){
             	registroIdEx.a = aTemp;
 				registroIdEx.b = bTemp;
 				registroIdEx.immm = immTemp;
@@ -347,10 +345,14 @@ void *rutinaID(void *args){
 				//tomado.
 				ingresarInstruccionesEx = true;
 
-				//si lo que se leyo es un branch, hay que detener id hasta
+				//si lo que se leyo es un branch o hay un conflicto de datos, hay que detener id hasta
 				//que este se resuelva. IF libera esta variable.
 				if(registroIdEx.ir[0] == 4 || registroIdEx.ir[0] == 5){
 					ingresarInstruccionesID = false;
+				}
+				else if(conflictoDatos){
+					ingresarInstruccionesID = false;
+					ingresarInstruccionesEx = false;
 				}
             }
 
@@ -432,7 +434,6 @@ void *rutinaEX(void *args){
                   break;
                   //BNQZ
                   case 5:
-                	  cout<<"Soy ex entre en case 5 bnqz"<<endl;
                 	  cout<<"el valor del registro del salto tiene un " << registroIdEx.a<<endl;
                 	  if(registroIdEx.a != 0){
                 		  cout<<"Soy ex entre case 5 branch BNQZ tomado"<<endl;
@@ -453,6 +454,7 @@ void *rutinaEX(void *args){
 			sem_wait(&semEspereMem);
 
 			//si leyo un branch se evita que actualice el registroExmem hasta que if lo lea.
+			cout<<"Soy ex el candado ingresarInstruccionesEx tiene un "<<ingresarInstruccionesEx<<endl;
 			if(ingresarInstruccionesEx){
 
 				registroExMem.aluOutput = aluOutputTemp;
@@ -465,6 +467,7 @@ void *rutinaEX(void *args){
 				}
 
 				if(registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5){
+					cout<<"Soy ex tengo un branch en exmem, me bloqueo"<<endl;
 					ingresarInstruccionesEx = false;
 					//matamos la instruccion de branch que quedo.
 					registroIfId.ir[0] = 0;
@@ -502,8 +505,9 @@ void *rutinaMEM(void *args){
 	while(true){
 	    sem_wait(&semMem);
         sem_wait(&semEspereWb);
+
 	    cout<<"Soy Mem pasando la instruccion "<< registroExMem.ir[0]<<" de Exmem a memWb"<<endl;
-        for(int i = 0; i < 4; i++){
+	    for(int i = 0; i < 4; i++){
         	registroMemWb.ir[i] = registroExMem.ir[i];
         }
 
@@ -584,7 +588,8 @@ void *rutinaWB(void *args){
 
 	        registros[registroMemWb.ir[2]] = registroMemWb.aluOutput;
 	        etiquetasRegistros[registroMemWb.ir[2]] = false;
-	        ingresarInstruccionesID = true;
+	        ingresarInstruccionesEx = true;
+
 
 	    }
 	    //Operaciones registro registro
