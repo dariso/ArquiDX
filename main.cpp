@@ -194,10 +194,11 @@ void *rutinaIF(void *args){
     	   //se cargo un branch, detener instrucciones hasta que se resuelva el mismo.
     	   //esta variable la pone en true el main.
     	   if(registroIfId.ir[0] == 4 || registroIfId.ir[0] == 5){
-    	   					ingresarInstruccionesIF = false;
+                ingresarInstruccionesIF = false;
     	   }
 
     	   else if(registroIfId.ir[0] == 63){
+
     		   suicidio = true;
     	   }
 
@@ -244,6 +245,24 @@ void *rutinaID(void *args){
 						suicidio = true;
 						break;
 
+                    //JR
+					case 2:
+                        if(!etiquetasRegistros[registroIfId.ir[1]]){
+                            ingresarInstruccionesIF = false;
+                            pc = pc + registros[registroIfId.ir[1]];
+                        }else{
+                            conflictoDatos = true;
+                        }
+						break;
+
+                    //JAL
+                    case 3:
+                        //registroIfId.ir[0] = -1;
+                        registros[32] = pc;
+                        pc = pc + registroIfId.ir[3];
+						ingresarInstruccionesIF = false;
+                        break;
+
 					//BEQZ
 					case 4:
 						//detener ingreso de instrucciones, no hay prediccion
@@ -256,6 +275,7 @@ void *rutinaID(void *args){
                            conflictoDatos = true;
                        }
 						break;
+
 				   //BNEZ
 				   case 5:
                        cout << "Etiqueta Registros " << etiquetasRegistros[registroIfId.ir[1]] << endl;
@@ -268,85 +288,109 @@ void *rutinaID(void *args){
                            conflictoDatos = true;
                        }
 					   break;
+
+                    //DADDI
 					case 8:
 						cout << "Etiqueta Registros " << etiquetasRegistros[registroIfId.ir[2]] << endl;
 						aTemp = registros[registroIfId.ir[1]];
 			            bTemp = registros[registroIfId.ir[2]];
 	                    immTemp = registroIfId.ir[3];
-						if(!etiquetasRegistros[registroIfId.ir[2]]){
+						if(!etiquetasRegistros[registroIfId.ir[1]]){
 							cout<<"Soy id el registro "<< registroIfId.ir[2]<<" esta siendo bloqueado para escritura"<<endl;
 		                    etiquetasRegistros[registroIfId.ir[2]] = true;
 				        }
 						else{
-							cout << "Hay conflicto de datos con el registro "<< registroIfId.ir[2] << endl;
+							cout << "Hay conflicto de datos con el registro "<< registroIfId.ir[1] << endl;
 							conflictoDatos = true;
 						}
 
 						break;
-				   case 32:
+
+                    //DADD
+                    case 32:
                         aTemp = registros[registroIfId.ir[1]];
                         bTemp = registros[registroIfId.ir[2]];
                         immTemp = registroIfId.ir[3];
-                        if(!etiquetasRegistros[registroIfId.ir[3]]){
+                        if(!etiquetasRegistros[registroIfId.ir[1]] && !etiquetasRegistros[registroIfId.ir[2]]){
+                            cout<<"Soy id el registro "<< registroIfId.ir[3]<<" esta siendo bloqueado para escritura"<<endl;
+                            etiquetasRegistros[registroIfId.ir[3]] = true;
+                        }else{
+                            cout << "Hay conflicto de datos con el registro "<< registroIfId.ir[2] << endl;
+                            conflictoDatos = true;
+                        }
+						break;
+
+                    //DSUB
+					case 34:
+						aTemp = registros[registroIfId.ir[1]];
+						bTemp = registros[registroIfId.ir[2]];
+						immTemp = registroIfId.ir[3];
+						if(!etiquetasRegistros[registroIfId.ir[1]] && !etiquetasRegistros[registroIfId.ir[2]]){
                             etiquetasRegistros[registroIfId.ir[3]] = true;
                         }else{
                             conflictoDatos = true;
                         }
 						break;
 
-					case 34:
-						aTemp = registros[registroIfId.ir[1]];
-						bTemp = registros[registroIfId.ir[2]];
-						immTemp = registroIfId.ir[3];
-						if(!etiquetasRegistros[registroIfId.ir[3]]){
-                            etiquetasRegistros[registroIfId.ir[3]] = true;
-                        }else{
-                            conflictoDatos = true;
-                        }
-						break;
+                    //DMUL
 					case 12:
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
-						immTemp = registroIfId.ir[3];
-						if(!etiquetasRegistros[registroIfId.ir[3]]){
+						immTemp = registroIfId.ir[2];
+						if(!etiquetasRegistros[registroIfId.ir[1]] && !etiquetasRegistros[registroIfId.ir[2]]){
                             etiquetasRegistros[registroIfId.ir[3]] = true;
                         }else{
                             conflictoDatos = true;
                         }
 						break;
+
+                    //DDIV
 					case  14:
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
 						immTemp = registroIfId.ir[3];
-						if(!etiquetasRegistros[registroIfId.ir[3]]){
+						if(!etiquetasRegistros[registroIfId.ir[1]] && !etiquetasRegistros[registroIfId.ir[2]]){
                             etiquetasRegistros[registroIfId.ir[3]] = true;
                         }else{
                             conflictoDatos = true;
                         }
                         break;
+
 					//LW
 					case 35:
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
 						immTemp = registroIfId.ir[3];
-						if(!etiquetasRegistros[registroIfId.ir[2]]){
+						if(!etiquetasRegistros[registroIfId.ir[1]]){
                             etiquetasRegistros[registroIfId.ir[2]] = true;
                         }else{
                             conflictoDatos = true;
                         }
 						break;
+
 					//SW
 					case 43:
 						aTemp = registros[registroIfId.ir[1]];
 						immTemp = registroIfId.ir[3];
 						bTemp = registros[registroIfId.ir[2]];
+						if(etiquetasRegistros[registroIfId.ir[1]] || etiquetasRegistros[registroIfId.ir[2]]){
+                            conflictoDatos = true;
+                        }
+
 						break;
+
 					//CASE 50, INSTRUC LL,MISMO PROCEDIMIENTO QUE LW LO DIFERENTE ES EN WB
 					case 50:
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
 						immTemp = registroIfId.ir[3];
-						break;
+						/*if(!etiquetasRegistros[registroIfId.ir[1]]){
+                            etiquetasRegistros[registroIfId.ir[2]] = true;
+                        }else{
+                            conflictoDatos = true;
+                        }
+						break;*/
+
 					//CASE SC
 					case 51:
 						aTemp = registros[registroIfId.ir[1]];
@@ -371,6 +415,9 @@ void *rutinaID(void *args){
 				for(int i = 0; i < 4; i++){
 					registroIdEx.ir[i] = registroIfId.ir[i];
 				}
+
+                if(!ingresarInstruccionesEx)
+                    ingresarInstruccionesEx = true;
 
 				registroIdEx.npc = registroIfId.npc;
 				//en caso de que id no estuviera leyendo el registro idex por branch
@@ -510,7 +557,9 @@ void *rutinaEX(void *args){
 					//matamos la instruccion de branch que quedo.
                     registroIfId.ir[0] = 0;
 				}
-
+                if(conflictoDatos){
+                    ingresarInstruccionesEx = false;
+                }
 
 
             sem_post(&semEspereEx);
@@ -544,7 +593,7 @@ void *rutinaMEM(void *args){
 	    sem_wait(&semMem);
         sem_wait(&semEspereWb);
 
-	    cout<<"Soy Mem pasando la instruccion "<< registroExMem.ir[0]<<" de Exmem a memWb"<<endl;
+	    cout<<"Soy Mem pasando la instruccion "<< registroExMem.ir[0]<<" de Exmem a memWb"<< "Con registro destino "<< registroExMem.ir[2]<<endl;
 	    for(int i = 0; i < 4; i++){
         	registroMemWb.ir[i] = registroExMem.ir[i];
         }
@@ -560,6 +609,9 @@ void *rutinaMEM(void *args){
         	//calcular Bloque
         	int posEnCache = loadCache((tamanoInstrucciones + registroExMem.aluOutput)/4);
         	registroMemWb.lmd = cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroExMem.aluOutput)%4];
+        	if(conflictoDatos){
+                ingresarInstruccionesID = true;
+        	}
         }
 
         //operacion Store
@@ -586,7 +638,6 @@ void *rutinaMEM(void *args){
         		cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroMemWb.aluOutput)%4] = registroExMem.b;
         	}
         }
-
 
         sem_post(&semEspereMem);
 
@@ -616,7 +667,7 @@ void *rutinaWB(void *args){
 	bool suicidio = false;
     while(true){
 	    sem_wait(&semWb);
-    	cout<<"Soy Wb tengo en MemWb la instruccion " << registroMemWb.ir[0]<<endl;
+    	cout<<"Soy Wb tengo en MemWb la instruccion " << registroMemWb.ir[0]<<"Con el registro "<< registroMemWb.ir[2]<<endl;
 	    if(registroMemWb.ir[0] == 63){
 	    	suicidio = true;
 	    }
@@ -635,7 +686,7 @@ void *rutinaWB(void *args){
 	 	       registroMemWb.ir[0] == 14){
 
 	    	registros[registroMemWb.ir[3]] = registroMemWb.aluOutput;
-	    	etiquetasRegistros[registroMemWb.ir[2]] = false;
+	    	etiquetasRegistros[registroMemWb.ir[3]] = false;
 	        ingresarInstruccionesID = true;
             conflictoDatos = false;
 	    }
@@ -643,6 +694,10 @@ void *rutinaWB(void *args){
 	    else if(registroMemWb.ir[0] == 35){
 
 	    	registros[registroMemWb.ir[2]] = registroMemWb.lmd;
+	    	cout << "Soy wb estoy escribiendo en registro " << registros[registroMemWb.ir[2]] << " un  " << registroMemWb.lmd<<endl;
+	    	etiquetasRegistros[registroMemWb.ir[2]] = false;
+	    	ingresarInstruccionesID = true;
+            conflictoDatos = false;
 	    }
 	    //operacion LL
 	    else if(registroMemWb.ir[0] == 50){
@@ -724,12 +779,16 @@ int main (){
 		    ingresarInstruccionesIF = true;
         }
 
+        if(registroIdEx.ir[0] == 2 || registroIdEx.ir[0] == 3){
+            ingresarInstruccionesIF = true;
+        }
+
 		iniciarCicloReloj();
 
 		sem_wait(&semMain);
         etapasFinalizadas = 0;
         barrera = 4 - hilosFinalizados;
-        if(hilosFinalizados == 5 || ciclo > 20){
+        if(hilosFinalizados == 5 || ciclo == 30){
 		   finalizarEjecucion = true;
         }
 	}
@@ -739,16 +798,11 @@ int main (){
     for(int i=0; i<33; i++){
         printf("\tR%d = %d\n", i, registros[i]);
     }
+
     /*printf("\nMemoria: \n");
     for(int i=768; i<1600; i++){
         printf("\tM%d = %d\n", i, memoria[i]);
     }*/
-
-    printf("Fin de la ejecución del programa:\n");
-    printf("\nEstado Registros: \n");
-    for(int i=0; i<33; i++){
-        printf("\tR%d = %d\n", i, etiquetasRegistros[i]);
-    }
 
     cout<<"Cache:"<<endl;
     for(int i = 0; i < 8; i++ ){
@@ -757,8 +811,6 @@ int main (){
     	}
     	cout<<endl;
     }
-
-
 
     printf("\nCiclos de reloj: %d\n", ciclo);
 	exit(0);
