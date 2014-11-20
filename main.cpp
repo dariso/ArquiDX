@@ -1,3 +1,33 @@
+/* Proyecto Programado Arquitectura de Computadoras
+ * Grupo 1
+ * Prof:Ileana Alpizar
+ * Xiannie Rivas Hylton B05206
+ * Daniel Rivera Solano A85274
+ * Simulacion de procesador MIPS sin forwarding ni prediccion de branches
+ *
+ * Para la sincronizacion de hilos se utilizo la libreria pthreads en un sistema operativo linux(ubuntu)
+ * Como requerimiento para correr el programa se debe agregar la sentencia -pthread a la hora de hacer
+ * la compilacion del mismo.Si se utiliza un IDE como Eclipse tambien funciona agregar a las
+ * opciones del linker del proyecto con click derecho al proyecto->properties->C/C++ Build->Settings
+ * ->GCC C++ Linker->Libraries->escribir aqui "pthread".
+ *
+ * Aspectos que quedaron pendientes
+ *
+ * -No se logro terminar de implementar el cambio de contexto, esto por razon de que al comenzar a
+ * implementarlo se descubrieron errores en manejo de conflictos de datos, los cuales se subestimo
+ * el tiempo que se iba a tardar en solucionarlos.
+ * .Por ende aunque el programa le pide el quantum al usuario este solo le permite ingresar un
+ * hilo.
+ * -No se implemento atrasos por fallo de Cache
+ * -No se logro hacer correctamente la conversion de direcciones de memoria a indices de las estructuras
+ * del programa, ya que los hilos de la profesora utilizan posiciones en memoria y el programa indexacion
+ * con arreglos.
+ *
+ *
+ * */
+
+
+
 #include <iostream>
 #include <cstdlib>
 #include <pthread.h>
@@ -11,7 +41,7 @@ using namespace std;
 #define NUM_THREADS 5
 const int tamanoMemoria = 1600;
 const int tamanoInstrucciones = 768;
-//registro 32 == RL
+//el registro 32 representa el RL
 const int numRegistros = 33;
 
 struct IfId{
@@ -52,16 +82,20 @@ bool ingresarInstruccionesEx = true;
 bool conflictoDatos = false;
 int ciclo = 0;
 int quantum = 0;
+//hilosUsuarioFinalizados = 0;
+//para saber cuantos hilos que introdujo el usuario han finalizado ejecucion
+//cambio de contexto
 int pc = 0;
 int etapasFinalizadas = 0;
 int barrera = 4;
 int hilosFinalizados = 0;
 vector<int> memoria(tamanoMemoria, 1);
 //registros inicializados en 1
-//RL es el reg en la pos 31
 vector<int> registros(numRegistros,0);
+//respaldo de hilos para el cambio de contexto, se guarda los 32 registros + el RL + el PC
 vector<int> respaldoHilos(34 * 5, 0);
-//etiquetas de los registros que van a ser modificados, true = va a ser modificado
+//etiquetas para identificar registros que van a ser modificados, true = va a ser modificado
+//para conflictos de datos
 vector<bool> etiquetasRegistros(numRegistros, false);
 IfId registroIfId = {0,{0,0,0,0}};
 IdEx registroIdEx = {0,0,0,0,{0,0,0,0}};
@@ -97,7 +131,7 @@ void cargarInstrucciones(){
             }
         }
     }
-    /**
+
     cout<<"Escriba el valor del quantum, debe ser positivo y diferente a 0"<<endl;
     salir = false;
     while(!salir){
@@ -111,7 +145,7 @@ void cargarInstrucciones(){
     	salir = true;
     	}
     }
-    **/
+
 }
 
 void inicializarSemaforos(){
@@ -139,6 +173,7 @@ void iniciarCicloReloj(){
 }
 
 int loadCache(int numBloque){
+
     int indice = numBloque % 8;
     int indiceMemoria = numBloque * 4;
     if(cacheDatos.etiqueta[indice] != numBloque){
@@ -148,8 +183,7 @@ int loadCache(int numBloque){
 				for(int i = 0;i<4;i++){
 					memoria[dirMemoriaViejo+i] = cacheDatos.bloques[indice][i];
 				}
-				cout<<"Holis"<<endl;
-        }
+	    }
         cacheDatos.etiqueta[indice] = numBloque;
         for(int i=0; i<4; i++){
         	cacheDatos.bloques[indice][i] = memoria[indiceMemoria + i];
@@ -167,13 +201,10 @@ void *rutinaIF(void *args){
        sem_wait(&semEspereId);
 
        if(ingresarInstruccionesIF){
-    	   ///hay un branch tomado
-    	   cout<<"Soy if en el exmem cond hay un"<<registroExMem.cond<<endl;
-    	   cout<<"Soy if en el registro Exmem ir hay un"<< registroExMem.ir[0]<<endl;
+           //revisar si hay un branch tomado
     	   if((registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5)
     	      	     	      			   && (registroExMem.cond == 1)){
-    		   cout<<"Soy if entre al branch tomado"<<endl;
-    		   cout<<"PC actual "<<pc<<"nuevo pc "<<registroExMem.aluOutput<<endl;
+
      		   pc = registroExMem.aluOutput;
      		   //se pone en cero para que if no lea nuevamente un branch tomado en el siguiente
      		   //ciclo ya que ex quien es el que actualiza el exMem
@@ -186,7 +217,7 @@ void *rutinaIF(void *args){
     	   //id haya podido leer.
     	   ingresarInstruccionesID = true;
 
-    	   cout<<"Soy if cargando instruccion# "<<memoria[pc]<<endl;
+
            //cargar instruccion en IF/ID
     	   for(int i = 0; i < 4; i++){
     		   registroIfId.ir[i] = memoria[pc+i];
@@ -197,6 +228,8 @@ void *rutinaIF(void *args){
                 ingresarInstruccionesIF = false;
     	   }
 
+    	   //cambiar por cambio de contexto, el hilo debe morir cuando lea instruccion 63
+    	   //y sea el ultimo hilo que queda por ejecutar
     	   else if(registroIfId.ir[0] == 63){
 
     		   suicidio = true;
@@ -208,15 +241,21 @@ void *rutinaIF(void *args){
        }
 
        pthread_mutex_lock( &mutex1 );
-
+       //la logica del la sincronizacion
+       //Se solicita un mutex para entrar a esta seccion critica, todas las etapas lo hacen
+       //Una barrera es utilizada para que un hilo sepa si es el ultimo en terminar en un ciclo de reloj
+       //la barrera comienza en 4 y es actualizada conforme se van matando los hilos de las etapas
+       //y se actualiza hilos finalizados
        if(suicidio){
     	   hilosFinalizados++;
        }
 
+       //si esto se cumple, no soy el ultimo hilo en terminar, asi que solo aumento contador
        if(etapasFinalizadas < barrera){
     	   etapasFinalizadas++;
        }
-
+       //si lo anterior no se cumple, si soy el utlimo hilo en terminar, asi que debo levantar el main
+       //que se encuentra detas de un semaforo para que inicie nuevo ciclo de reloj
        else{
     	   sem_post(&semMain);
        }
@@ -235,6 +274,8 @@ void *rutinaID(void *args){
     int aTemp = -1;
     int bTemp = -1;
     int immTemp = -1;
+    //temporales para que id lea de if/id, ya que debe esperar que ex lea de id/ex
+    //para que haya mejor paralelismo
     	while(true){
     		sem_wait(&semId);
     		sem_wait(&semRegistros);//espera a que wb escriba en registros
@@ -244,6 +285,10 @@ void *rutinaID(void *args){
 					case 63:
 						suicidio = true;
 						break;
+
+				//se chequea la etiqueta de los registros operandos, si alguna es true como la condicion
+			    //esta negada no entrara al if y creara el retraso necesario con la variable
+				//conflicto Datos
 
                     //JR
 					case 2:
@@ -278,7 +323,6 @@ void *rutinaID(void *args){
 
 				   //BNEZ
 				   case 5:
-                       cout << "Etiqueta Registros " << etiquetasRegistros[registroIfId.ir[1]] << endl;
                        aTemp = registros[registroIfId.ir[1]];
                        bTemp = registros[registroIfId.ir[2]];
                        immTemp = registroIfId.ir[3];
@@ -291,7 +335,6 @@ void *rutinaID(void *args){
 
                     //DADDI
 					case 8:
-						cout << "Etiqueta Registros " << etiquetasRegistros[registroIfId.ir[2]] << endl;
 						aTemp = registros[registroIfId.ir[1]];
 			            bTemp = registros[registroIfId.ir[2]];
 	                    immTemp = registroIfId.ir[3];
@@ -300,7 +343,6 @@ void *rutinaID(void *args){
 		                    etiquetasRegistros[registroIfId.ir[2]] = true;
 				        }
 						else{
-							cout << "Hay conflicto de datos con el registro "<< registroIfId.ir[1] << endl;
 							conflictoDatos = true;
 						}
 
@@ -315,7 +357,7 @@ void *rutinaID(void *args){
                             cout<<"Soy id el registro "<< registroIfId.ir[3]<<" esta siendo bloqueado para escritura"<<endl;
                             etiquetasRegistros[registroIfId.ir[3]] = true;
                         }else{
-                            cout << "Hay conflicto de datos con el registro "<< registroIfId.ir[2] << endl;
+
                             conflictoDatos = true;
                         }
 						break;
@@ -379,17 +421,17 @@ void *rutinaID(void *args){
 
 						break;
 
-					//CASE 50, INSTRUC LL,MISMO PROCEDIMIENTO QUE LW LO DIFERENTE ES EN WB
+					//CASE 50, INSTRUC LL
 					case 50:
 						aTemp = registros[registroIfId.ir[1]];
 						bTemp = registros[registroIfId.ir[2]];
 						immTemp = registroIfId.ir[3];
-						/*if(!etiquetasRegistros[registroIfId.ir[1]]){
+						if(!etiquetasRegistros[registroIfId.ir[1]]){
                             etiquetasRegistros[registroIfId.ir[2]] = true;
                         }else{
                             conflictoDatos = true;
                         }
-						break;*/
+						break;
 
 					//CASE SC
 					case 51:
@@ -401,16 +443,18 @@ void *rutinaID(void *args){
     		}
 
 			sem_wait(&semEspereEx);
-
+            //escribir en id/ex si no hay conflicto de datos ni retraso
             if(ingresarInstruccionesID && !conflictoDatos){
             	registroIdEx.a = aTemp;
 				registroIdEx.b = bTemp;
 				registroIdEx.immm = immTemp;
 
+				//SI id logra escribir en id/ex, debe siempre liberar a ex, por los casos de retrasos
+				// que ex se encuentren tambien no escribiendo en registro intermedio por retraso
                 if(registroIdEx.ir[0] == 4 || registroIdEx.ir[0] == 5){
                     ingresarInstruccionesEx = true;
                 }
-				cout<<"Soy id pasando la instruccion "<< registroIfId.ir[0]<<" de ifid a idex"<<endl;
+
 
 				for(int i = 0; i < 4; i++){
 					registroIdEx.ir[i] = registroIfId.ir[i];
@@ -424,7 +468,7 @@ void *rutinaID(void *args){
 				//se deja leer el idex una vez id lo actualizo, por si se da el caso de branch
 				//tomado.
 
-				cout << "Estado del conflicto de datos " << conflictoDatos << endl;
+
             }
 				//si lo que se leyo es un branch o hay un conflicto de datos, hay que detener id hasta
 				//que este se resuelva. IF libera esta variable.
@@ -484,7 +528,6 @@ void *rutinaEX(void *args){
                           break;
                       case 8:
                           aluOutputTemp = registroIdEx.a + registroIdEx.immm;
-                          cout<<"Soy EX estoy sumando los valores "<< registroIdEx.a << " " << registroIdEx.immm<<endl;
                           break;
                       case 34:
                           aluOutputTemp = registroIdEx.a - registroIdEx.b;
@@ -509,44 +552,41 @@ void *rutinaEX(void *args){
                           aluOutputTemp = registroIdEx.a + registroIdEx.immm;
                           bTemp = registroIdEx.b;
                           break;
+
                       //BEQZ
                       case 4:
                           if(registroIdEx.a == 0){
-                              //computar nuevo pc
-                              //if tiene acceso a EXMEM, libro pag 661,cambiar if
+                              //computar nuevo pc, comparacion exitosa
+                              //if tiene acceso a EXMEM
                               condTemp = 1; //simular que fue true la comparacion
                               aluOutputTemp = registroIdEx.npc + registroIdEx.immm;
 
-                          }
-                      break;
+                     }
+                     break;
                       //BNQZ
                       case 5:
-                          cout<<"el valor del registro del salto tiene un " << registroIdEx.a<<endl;
                           if(registroIdEx.a != 0){
-                              cout<<"Soy ex entre case 5 branch BNQZ tomado"<<endl;
+
                               //computar nuevo pc
                               //setear pc en if, if tiene acceso a EXMEM,lbro pag 661
                               condTemp = 1; //simular que fue true la comparacion
                               aluOutputTemp = registroIdEx.npc + registroIdEx.immm;
 
-                              cout<<"Soy ex hay un " << condTemp << " en condtemp y un " <<
-                                      aluOutputTemp <<" en aluOutputTemp"<<endl;
-
-                          }
+                      }
                       break;
                 }
 
     	    }
 			sem_wait(&semEspereMem);
 
-			//si leyo un branch se evita que actualice el registroExmem hasta que if lo lea.
-			cout<<"Soy ex el candado ingresarInstruccionesEx tiene un "<<ingresarInstruccionesEx<<endl;
+
+
 
 				registroExMem.aluOutput = aluOutputTemp;
 				registroExMem.b = bTemp;
 				registroExMem.cond = condTemp;
 
-				cout<<"Soy ex pasando la instruccion "<< registroIdEx.ir[0]<<" de idex a exmem"<<endl;
+
 				for(int i = 0; i < 4; i++){
 					registroExMem.ir[i] = registroIdEx.ir[i];
 				}
@@ -593,7 +633,6 @@ void *rutinaMEM(void *args){
 	    sem_wait(&semMem);
         sem_wait(&semEspereWb);
 
-	    cout<<"Soy Mem pasando la instruccion "<< registroExMem.ir[0]<<" de Exmem a memWb"<< "Con registro destino "<< registroExMem.ir[2]<<endl;
 	    for(int i = 0; i < 4; i++){
         	registroMemWb.ir[i] = registroExMem.ir[i];
         }
@@ -628,11 +667,11 @@ void *rutinaMEM(void *args){
         	//caso que RL difiere de lo que cargo LL
         	if(cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroMemWb.aluOutput)%4]
         	   != registros[32]){
-        		cout<<"Instruccion SC fallo"<<endl;
+        		//Instruccion SC fallo
         		registroMemWb.lmd = 0;
         	}
         	else{
-        		cout<<"Instruccion SC exitosa"<<endl;
+        		//Instruccion SC exitosa"
         		registroMemWb.lmd  = 1;
         		cacheDatos.estado[posEnCache] = 'm';
         		cacheDatos.bloques[posEnCache][(tamanoInstrucciones + registroMemWb.aluOutput)%4] = registroExMem.b;
@@ -650,7 +689,7 @@ void *rutinaMEM(void *args){
             etapasFinalizadas++;
 	    }
         else{
-        	cout<<"valorbarrera= "<<barrera<<"etapasF= "<<etapasFinalizadas<<endl;
+
 	        sem_post(&semMain);
 	    }
 
@@ -667,17 +706,22 @@ void *rutinaWB(void *args){
 	bool suicidio = false;
     while(true){
 	    sem_wait(&semWb);
-    	cout<<"Soy Wb tengo en MemWb la instruccion " << registroMemWb.ir[0]<<"Con el registro "<< registroMemWb.ir[2]<<endl;
+
 	    if(registroMemWb.ir[0] == 63){
 	    	suicidio = true;
 	    }
 
 	    //Operaciones registro immm
 	    else if(registroMemWb.ir[0] == 8){
-            cout<<"Soy wb traigo en mi aluOutput un " << registroMemWb.aluOutput << endl;
+
 	        registros[registroMemWb.ir[2]] = registroMemWb.aluOutput;
+	        //wb pone etiquetas de modificacion en registros = false ya que ya modifico el registro en
+	        //cuestion
 	        etiquetasRegistros[registroMemWb.ir[2]] = false;
+	        //libera id en caso de conflicto de datos
 	        ingresarInstruccionesID = true;
+	        //con esto id puede revisar de nuevo si no los operandos de la instruccion no tienen
+	        //conflictos
             conflictoDatos = false;
 
 	    }
@@ -694,7 +738,6 @@ void *rutinaWB(void *args){
 	    else if(registroMemWb.ir[0] == 35){
 
 	    	registros[registroMemWb.ir[2]] = registroMemWb.lmd;
-	    	cout << "Soy wb estoy escribiendo en registro " << registros[registroMemWb.ir[2]] << " un  " << registroMemWb.lmd<<endl;
 	    	etiquetasRegistros[registroMemWb.ir[2]] = false;
 	    	ingresarInstruccionesID = true;
             conflictoDatos = false;
@@ -749,6 +792,7 @@ int main (){
     	for(int j = 0; j < 4 ; j++){
     		cacheDatos.bloques[i][j] = 0;
     	}
+    	//estado default compartidos
     	cacheDatos.estado[i] = 'c';
     	cacheDatos.etiqueta[i] = -1;
     }
@@ -774,11 +818,10 @@ int main (){
 
 		//Si hay un 4 o 5 en ExMem.ir[0] = la instruccion de branch fue leida y
 		//resuelta por ex, ergo se debe dejar pasar de nuevo las instrucciones.
-		cout << "Instruccion EX/MEM " << registroExMem.ir[0] << endl;
-		if(registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5){
+	    if(registroExMem.ir[0] == 4 || registroExMem.ir[0] == 5){
 		    ingresarInstruccionesIF = true;
         }
-
+        //mismo caso para JAL y JR
         if(registroIdEx.ir[0] == 2 || registroIdEx.ir[0] == 3){
             ingresarInstruccionesIF = true;
         }
@@ -787,8 +830,10 @@ int main (){
 
 		sem_wait(&semMain);
         etapasFinalizadas = 0;
+        //se actualiza la barrera de acuerdo a el numero de hilos(etapas que finalizaron ejecucion)
         barrera = 4 - hilosFinalizados;
-        if(hilosFinalizados == 5 || ciclo == 30){
+        //si los 5 hilos finalizaron ejecucion, se dejan de iniciar nuevos ciclos de reloj
+        if(hilosFinalizados == 5){
 		   finalizarEjecucion = true;
         }
 	}
